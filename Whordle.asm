@@ -31,6 +31,8 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
 ; ASCII
     ASCII_YES_UPPERCASE      EQU 059h
     ASCII_YES_LOWERCASE      EQU 079h
+	ASCII_ENTER              EQU 045h
+	ASCII_BACKSPACE          EQU 008h
 
 ; COMPARE_CHARS
     ASCII_Z_LOWER_CHAR      EQU 7Ah
@@ -42,14 +44,18 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
     ASCII_LOWER_TO_UPPER    EQU 20h
 
 ; COLOR SCREEN DIMENSIONS IN NUMBER OF CHARACTERS
-    SCREEN_MAX_ROWS EQU 15
-    SCREEN_MAX_COLS EQU 20q
+    SCREEN_MAX_ROWS EQU 17
+    SCREEN_MAX_COLS EQU 19
 
 ; FIELD DIMENSIONS
     FIELD_R1 EQU 1
     FIELD_R2 EQU SCREEN_MAX_ROWS-2
     FIELD_C1 EQU 1
     FIELD_C2 EQU SCREEN_MAX_COLS-2
+	
+; GAME CONSTANTS
+    WORD_COUNT EQU 6h
+	LETTER_COUNT EQU 5h
 
 ; *************************************************************************
 ; Our executable assembly code starts here in the .code section
@@ -67,14 +73,24 @@ MAIN 	PROC 	NEAR
       CALL INIT_SCREEN
       CALL DRAW_FIELD
 
-      MOV DH, SCREEN_MAX_ROWS/2
-      MOV DL, SCREEN_MAX_COLS/2
+      MOV DH, 3
+      MOV DL, 5
       
       CALL MOVE_CURSOR
+	  
+	  ; BL = letter counter
+	  MOV BL, LETTER_COUNT
+	  ; BH = Word counter
+	  MOV BH, WORD_COUNT
+	  
       
   MAIN_LOOP:
       CMP [END_GAME], TRUE
       JZ END_PROG
+
+	  ; Game end
+	  CMP BH, 0
+	  JE END_PROG
 
       ; Check if a key is available to read
       MOV AH, 0Bh
@@ -85,16 +101,53 @@ MAIN 	PROC 	NEAR
       ; A key is available -> read
       CHECK_LOOP:
       CALL READ_CHAR   
-      ;CALL LOWER_TO_UPPER
+      CALL LOWER_TO_UPPER
 
+	  ; Quit
       CMP AL, ASCII_QUIT
       JZ END_PROG
-      ;CMP AL, ASCII_Z_UPPER_CHAR
-      ;JA CHECK_LOOP
-      ;CMP AL, ASCII_A_UPPER_CHAR
-      ;JB CHECK_LOOP
+	  
+	  ;Check backspace
+	  CMP AL, ASCII_BACKSPACE
+	  JNE END_IF_BACKSPACE
+	  CMP BL, LETTER_COUNT
+	  JE END_IF_BACKSPACE
+	  
+	  ADD BL, 1
+	  SUB DL, 2
+	  CALL MOVE_CURSOR
+	  MOV AL, 20h
+	  CALL PRINT_CHAR
+	  CALL MOVE_CURSOR
+	  JMP END_KEY
+	  
+  END_IF_BACKSPACE:
+	  
+	  ; Check if final letter
+	  CMP BL, 0
+	  JNE END_IF_ENTER
+	  CMP AL, ASCII_ENTER
+	  JNE END_KEY
+	  ;;;validate word
+	  
+	  MOV BL, LETTER_COUNT
+	  SUB BH, 1
+	  ADD DH, 2
+      MOV DL, 5
+      CALL MOVE_CURSOR
+	  JMP END_KEY
+	  
+  END_IF_ENTER:
+  
+	  ; Input letter
+      CMP AL, ASCII_Z_UPPER_CHAR
+      JA CHECK_LOOP
+      CMP AL, ASCII_A_UPPER_CHAR
+      JB CHECK_LOOP
 
-      CALL PRINT_CHAR   
+	  ADD DL, 2
+	  SUB BL, 1
+      CALL PRINT_CHAR
       
       ; Is it a special key?
       CMP AL, ASCII_SPECIAL_KEY
