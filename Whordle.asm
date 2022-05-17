@@ -31,7 +31,7 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
 ; ASCII
     ASCII_YES_UPPERCASE      EQU 059h
     ASCII_YES_LOWERCASE      EQU 079h
-	ASCII_ENTER              EQU 045h
+	ASCII_ENTER              EQU 13
 	ASCII_BACKSPACE          EQU 008h
 
 ; COMPARE_CHARS
@@ -45,7 +45,7 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
 
 ; COLOR SCREEN DIMENSIONS IN NUMBER OF CHARACTERS
     SCREEN_MAX_ROWS EQU 17
-    SCREEN_MAX_COLS EQU 19
+    SCREEN_MAX_COLS EQU 30
 
 ; FIELD DIMENSIONS
     FIELD_R1 EQU 1
@@ -83,6 +83,7 @@ MAIN 	PROC 	NEAR
 	  ; BH = Word counter
 	  MOV BH, WORD_COUNT
 	  
+	  LEA SI, [CURR_WORD]
       
   MAIN_LOOP:
       CMP [END_GAME], TRUE
@@ -107,11 +108,13 @@ MAIN 	PROC 	NEAR
       CMP AL, ASCII_QUIT
       JZ END_PROG
 	  
-	  ;Check backspace
+	  ; Check backspace
 	  CMP AL, ASCII_BACKSPACE
 	  JNE END_IF_BACKSPACE
 	  CMP BL, LETTER_COUNT
 	  JE END_IF_BACKSPACE
+	  
+	  DEC SI
 	  
 	  ADD BL, 1
 	  SUB DL, 2
@@ -125,11 +128,30 @@ MAIN 	PROC 	NEAR
 	  
 	  ; Check if final letter
 	  CMP BL, 0
-	  JNE END_IF_ENTER
+	  JNE END_IF_FINAL_LETTER	
 	  CMP AL, ASCII_ENTER
 	  JNE END_KEY
-	  ;;;validate word
 	  
+	  ;; validate word
+	  CALL CHECK_WORD
+	  PUSH AX
+	  PUSH BX
+	  PUSH CX
+	  PUSH DX
+	  MOV AL, [CORRECT_LETTER_FLAG]
+	  ADD AL, 30h
+	  CALL PRINT_CHAR
+  
+	  MOV AL, [CORRECT_POSITION_FLAG]
+	  ADD AL, 30h
+	  CALL PRINT_CHAR
+	  POP DX
+	  POP CX
+	  POP BX
+	  POP AX
+
+	  
+	  LEA SI, [CURR_WORD]
 	  MOV BL, LETTER_COUNT
 	  SUB BH, 1
 	  ADD DH, 2
@@ -137,13 +159,16 @@ MAIN 	PROC 	NEAR
       CALL MOVE_CURSOR
 	  JMP END_KEY
 	  
-  END_IF_ENTER:
+  END_IF_FINAL_LETTER:
   
 	  ; Input letter
       CMP AL, ASCII_Z_UPPER_CHAR
       JA CHECK_LOOP
       CMP AL, ASCII_A_UPPER_CHAR
       JB CHECK_LOOP
+
+	  MOV [SI], AL
+	  INC SI
 
 	  ADD DL, 2
 	  SUB BL, 1
@@ -180,6 +205,114 @@ MAIN 	PROC 	NEAR
 	INT 20h		
 
 MAIN	ENDP	
+
+; ****************************************
+; Reads char from keyboard
+; If char is not available, blocks until a key is pressed
+; The char is not output to screen
+; Entry: 
+;
+; Returns:
+;   AL: ASCII CODE
+;   AH: ATTRIBUTE
+; Modifies:
+;   
+; Uses: 
+;   
+; Calls:
+;   
+; ****************************************
+PUBLIC  CHECK_WORD
+CHECK_WORD PROC NEAR
+
+	PUSH SI ; game word pointer
+	PUSH AX ; current word pointer
+	PUSH BX ; current word flags
+    PUSH CX ; temp storage
+	PUSH DX ; loop counters
+	
+	XOR SI, SI
+	XOR AX, AX
+	XOR BX, BX
+	XOR CX, CX
+	XOR DX, DX
+	
+	MOV DH, LETTER_COUNT
+	LEA AX, [CURR_WORD]
+	
+	; Loop: For every letter in the current word,
+	; check if it's in the game word, and if their positions match
+	
+  WORD_LOOP_1:
+  
+	MOV DL, LETTER_COUNT
+	LEA SI, [GAME_WORD]
+  
+  WORD_LOOP_2:
+    
+	MOV CH, [SI]
+	
+	PUSH SI
+	MOV SI, AX
+	MOV CL, [SI]
+	POP SI
+	
+	; Do letters match
+	CMP CL, CH
+	JNE END_LOOP_2
+	; Do positions match
+	CMP DL, DH
+	JE CORRECT_POSITION
+
+  CORRECT_LETTER:
+  
+    ADD BH, 1
+	JMP CORRECT_END
+  
+  CORRECT_POSITION:
+  
+    ADD BL, 1
+	JMP CORRECT_END
+	
+  CORRECT_END:
+    
+	JMP END_LOOP_1
+		
+  END_LOOP_2:
+	
+	INC SI
+	SUB DL, 1
+	CMP DL, 0
+	JNE WORD_LOOP_2
+	
+  END_LOOP_1:
+	
+	INC AX
+	SUB DH, 1
+	CMP DH, 0
+	JE END_LOOP
+  
+    SHL BH, 1
+	SHL BL, 1
+	JMP WORD_LOOP_1
+	
+  END_LOOP:	
+	
+	; Save flags
+	LEA SI, [CORRECT_LETTER_FLAG]
+	MOV [SI], BH
+	LEA SI, [CORRECT_POSITION_FLAG]
+	MOV [SI], BL
+	
+	POP DX
+	POP CX
+    POP BX
+	POP AX
+	POP SI
+
+    RET
+      
+CHECK_WORD ENDP
 
 ; ****************************************
 ; Reset internal variables
@@ -1026,6 +1159,12 @@ DATA_SEG	SEGMENT	PUBLIC
 
     SCORE_STR           DB "Your score is $"
     PLAY_AGAIN_STR      DB ". Do you want to play again? (Y/N)$"
+	
+	GAME_WORD              DB "COCKA"
+    CURR_WORD              DB 5 DUP(0)
+	
+	CORRECT_LETTER_FLAG    DB 0
+	CORRECT_POSITION_FLAG  DB 0
     
 DATA_SEG	ENDS
 
