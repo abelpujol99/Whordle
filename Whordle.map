@@ -1,7 +1,7 @@
 
  Start  Stop   Length Name                   Class
- 00000H 00426H 00427H CODE_SEG               
- 00430H 0047AH 0004BH DATA_SEG               
+ 00000H 004ABH 004ACH CODE_SEG               
+ 004B0H 004FAH 0004BH DATA_SEG               
 
  Origin   Group
  0000:0   SGROUP
