@@ -33,6 +33,7 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
     ASCII_YES_LOWERCASE      EQU 079h
 	ASCII_ENTER              EQU 13
 	ASCII_BACKSPACE          EQU 008h
+	ASCII_SPACE              EQU 20h
 
 ; COMPARE_CHARS
     ASCII_Z_LOWER_CHAR      EQU 7Ah
@@ -56,6 +57,9 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
 ; GAME CONSTANTS
     WORD_COUNT EQU 6h
 	LETTER_COUNT EQU 5h
+	GAME_WORD_GROUP_AMOUNT EQU 8
+	GAME_WORD_AMOUNT EQU 27
+	WORD_LENGTH EQU 12
 
 ; *************************************************************************
 ; Our executable assembly code starts here in the .code section
@@ -71,7 +75,11 @@ MAIN 	PROC 	NEAR
 
       CALL INIT_GAME
       CALL INIT_SCREEN
+	  CALL CHOOSE_GAME_WORD
       CALL DRAW_FIELD
+
+	  ;;DEBUG
+	  ;CALL PRINT_GAME_WORD
 
       MOV DH, 3
       MOV DL, 5
@@ -89,9 +97,9 @@ MAIN 	PROC 	NEAR
       CMP [END_GAME], TRUE
       JZ END_PROG
 
-	  ; Game end
+	  ; Lose when you run out of words
 	  CMP BH, 0
-	  JE END_PROG
+	  JE LOSE
 
       ; Check if a key is available to read
       MOV AH, 0Bh
@@ -119,7 +127,7 @@ MAIN 	PROC 	NEAR
 	  ADD BL, 1
 	  SUB DL, 2
 	  CALL MOVE_CURSOR
-	  MOV AL, 20h
+	  MOV AL, ASCII_SPACE
 	  CALL PRINT_CHAR
 	  CALL MOVE_CURSOR
 	  JMP END_KEY
@@ -141,17 +149,20 @@ MAIN 	PROC 	NEAR
 	  PUSH CX
 	  PUSH DX
 	  MOV AL, [CORRECT_LETTER_FLAG]
-	  ADD AL, 30h
+	  ADD AL, ASCII_NUMBER_ZERO
 	  ;CALL PRINT_CHAR
   
 	  MOV AL, [CORRECT_POSITION_FLAG]
-	  ADD AL, 30h
+	  ADD AL, ASCII_NUMBER_ZERO
 	  ;CALL PRINT_CHAR
 	  POP DX
 	  POP CX
 	  POP BX
 	  POP AX
 
+	  MOV CL, [CORRECT_POSITION_FLAG]
+	  CMP CL, 01Fh
+	  JE WIN
 	  
 	  LEA SI, [CURR_WORD]
 	  MOV BL, LETTER_COUNT
@@ -190,11 +201,18 @@ MAIN 	PROC 	NEAR
   END_KEY:
       JMP MAIN_LOOP
 
+  LOSE:
+	  CALL PRINT_LOSE_STRING
+	  CALL PRINT_GAME_WORD
+	  JMP END_PROG
+	  
+  WIN:
+      CALL PRINT_SCORE_STRING
+      CALL PRINT_SCORE
+
   END_PROG:
       CALL RESTORE_TIMER_INTERRUPT
       CALL SHOW_CURSOR
-      CALL PRINT_SCORE_STRING
-      CALL PRINT_SCORE
       CALL PRINT_PLAY_AGAIN_STRING
       
       CALL READ_CHAR
@@ -207,6 +225,107 @@ MAIN 	PROC 	NEAR
 	INT 20h		
 
 MAIN	ENDP	
+
+; ****************************************
+; Shows the cursor (standard size)
+; Entry: 
+;   -
+; Returns:
+;   -
+; Modifies:
+;   -
+; Uses: 
+;   -
+; Calls:
+;   int 10h, service AH=1
+; ****************************************
+PUBLIC CHOOSE_GAME_WORD
+CHOOSE_GAME_WORD PROC NEAR
+
+    PUSH AX
+	PUSH BX
+	PUSH CX
+	PUSH DX
+	PUSH SI
+	
+    MOV AH, 00h     
+    INT 1AH
+
+
+    MOV BX, DX
+	XOR DX, DX
+    MOV AX, BX
+    MOV CX, GAME_WORD_GROUP_AMOUNT    
+    DIV CX
+
+	cmp dl, 0
+	je GW_GROUP_0
+	cmp dl, 1
+	je GW_GROUP_1
+	cmp dl, 2
+	je GW_GROUP_2
+	cmp dl, 3
+	je GW_GROUP_3
+	cmp dl, 4
+	je GW_GROUP_4
+	cmp dl, 5
+	je GW_GROUP_5
+	cmp dl, 6
+	je GW_GROUP_6
+	cmp dl, 7
+	je GW_GROUP_7
+	
+  GW_GROUP_0:
+	LEA SI, [ALL_WORDS_0]
+	JMP END_IF_GW
+  GW_GROUP_1:
+	LEA SI, [ALL_WORDS_1]
+	JMP END_IF_GW
+  GW_GROUP_2:
+	LEA SI, [ALL_WORDS_2]
+	JMP END_IF_GW
+  GW_GROUP_3:
+	LEA SI, [ALL_WORDS_3]
+	JMP END_IF_GW
+  GW_GROUP_4:
+	LEA SI, [ALL_WORDS_4]
+	JMP END_IF_GW
+  GW_GROUP_5:
+	LEA SI, [ALL_WORDS_5]
+	JMP END_IF_GW
+  GW_GROUP_6:
+	LEA SI, [ALL_WORDS_6]
+	JMP END_IF_GW
+  GW_GROUP_7:
+	LEA SI, [ALL_WORDS_7]
+	JMP END_IF_GW
+	
+  END_IF_GW:	
+  
+    XOR DX, DX
+    MOV AX, BX
+    MOV CX, GAME_WORD_AMOUNT
+    DIV CX
+	
+	MOV AX, DX
+	MOV CX, WORD_LENGTH
+	MUL CX
+	ADD SI, AX
+	
+	LEA DI, [GAME_WORD]
+	CLD
+	MOV CX, 06h
+	REP MOVSB
+
+	POP SI
+	POP DX
+	POP CX
+	POP BX
+	POP AX
+	
+    RET
+
+CHOOSE_GAME_WORD       ENDP
 
 ; ****************************************
 ; Reads char from keyboard
@@ -890,6 +1009,45 @@ PRINT_SCORE_STRING PROC NEAR
 
 PRINT_SCORE_STRING       ENDP
 
+
+; ****************************************
+; Print the lose string, starting in the cursor
+; (FIELD_C1, FIELD_R2) coordinate
+; Entry: 
+;   DX: pointer to string
+; Returns:
+;   -
+; Modifies:
+;   -
+; Uses: 
+;   LOSE_STR
+;   FIELD_C1
+;   FIELD_R2
+; Calls:
+;   GET_CURSOR_PROP
+;   SET_CURSOR_PROP
+;   PRINT_STRING
+; ****************************************
+PUBLIC PRINT_LOSE_STRING
+PRINT_LOSE_STRING PROC NEAR
+
+    PUSH CX
+    PUSH DX
+
+    CALL GET_CURSOR_PROP  ; Get cursor size
+    MOV DH, FIELD_R2+1
+    MOV DL, FIELD_C1
+    CALL SET_CURSOR_PROP
+
+    LEA DX, LOSE_STR
+    CALL PRINT_STRING
+
+    POP DX
+    POP CX
+    RET
+
+PRINT_LOSE_STRING       ENDP
+
 ; ****************************************
 ; Print the score string, starting in the
 ; current cursor coordinate
@@ -938,46 +1096,44 @@ PUBLIC PRINT_SCORE
 PRINT_SCORE PROC NEAR
 
     PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
 
-    ; 1000'
-    MOV AX, [NUM_TILES]
-    XOR DX, DX
-    MOV BX, 1000
-    DIV BX            ; DS:AX / BX -> AX: quotient, DX: remainder
+	MOV AL, WORD_COUNT+1
+	SUB AL, BH
     ADD AL, ASCII_NUMBER_ZERO
-    CALL PRINT_CHAR
+	CALL PRINT_CHAR
 
-    ; 100'
-    MOV AX, DX        ; Remainder
-    XOR DX, DX
-    MOV BX, 100
-    DIV BX            ; DS:AX / BX -> AX: quotient, DX: remainder
-    ADD AL, ASCII_NUMBER_ZERO
-    CALL PRINT_CHAR
-
-    ; 10'
-    MOV AX, DX          ; Remainder
-    XOR DX, DX
-    MOV BX, 10
-    DIV BX            ; DS:AX / BX -> AX: quotient, DX: remainder
-    ADD AL, ASCII_NUMBER_ZERO
-    CALL PRINT_CHAR
-
-    ; 1'
-    MOV AX, DX
-    ADD AL, ASCII_NUMBER_ZERO
-    CALL PRINT_CHAR
-
-    POP DX
-    POP CX
-    POP BX
     POP AX
     RET   
          
 PRINT_SCORE        ENDP
+
+; ****************************************
+; Prints the score of the player in decimal, on the screen, 
+; starting in the cursor position
+; NUM_TILES range: [0, 9999]
+; Entry: 
+;   -
+; Returns:
+;   -
+; Modifies:
+;   -
+; Uses: 
+;   NUM_TILES memory variable
+; Calls:
+;   PRINT_CHAR
+; ****************************************
+PUBLIC PRINT_GAME_WORD
+PRINT_GAME_WORD PROC NEAR
+
+    PUSH DX
+
+	LEA DX, GAME_WORD
+	CALL PRINT_STRING
+
+    POP DX
+    RET   
+         
+PRINT_GAME_WORD        ENDP
 
 ; ****************************************
 ; Game timer interrupt service routine
@@ -1156,13 +1312,26 @@ DATA_SEG	SEGMENT	PUBLIC
     START_GAME DB 0             ; 'MAIN' sets START_GAME to '1' when a key is pressed
     END_GAME DB 0               ; 'NEW_TIMER_INTERRUPT' sets END_GAME to '1' when a condition to end the game happens
 
-    SCORE_STR           DB "Your score is $"
+    SCORE_STR           DB "You guessed correctly in attempt number $"
+    LOSE_STR           DB "Too bad! The correct word was $"
     PLAY_AGAIN_STR      DB ". Do you want to play again? (Y/N)$"
 	
-	GAME_WORD              DB "COCKA"
+	GAME_WORD              DB 6 DUP(0)
     CURR_WORD              DB 5 DUP(0)
 	
-	CORRECT_LETTER_FLAG    DB 0
+	;a lot of 5-letter words
+	;god forgive my sins
+	
+ALL_WORDS_0 DB "ABUSE$ADULT$AGENT$ANGER$APPLE$AWARD$BASIS$BEACH$BIRTH$BLOCK$BLOOD$BOARD$BRAIN$BREAD$BREAK$BROWN$BUYER$CAUSE$CHAIN$CHAIR$CHEST$CHIEF$CHILD$CHINA$CLAIM$CLASS$"
+ALL_WORDS_1 DB "COACH$COAST$COURT$COVER$CREAM$CRIME$CROSS$CROWD$CROWN$CYCLE$DANCE$DEATH$DEPTH$DOUBT$DRAFT$DRAMA$DREAM$DRESS$DRINK$DRIVE$EARTH$ENEMY$ENTRY$ERROR$EVENT$FAITH$"
+ALL_WORDS_2 DB "FAULT$FIELD$FIGHT$FINAL$FLOOR$FOCUS$FORCE$FRAME$FRANK$FRONT$FRUIT$GLASS$GRANT$GRASS$GREEN$GROUP$GUIDE$HEART$HENRY$HORSE$HOTEL$HOUSE$IMAGE$INDEX$INPUT$ISSUE$"
+ALL_WORDS_3 DB "JONES$JUDGE$KNIFE$LAURA$LAYER$LEVEL$LEWIS$LIGHT$LIMIT$LUNCH$MAJOR$MARCH$MATCH$METAL$MODEL$MONEY$MONTH$MOTOR$MOUTH$MUSIC$NIGHT$NOISE$NORTH$NOVEL$NURSE$OFFER$"
+ALL_WORDS_4 DB "ORDER$OTHER$OWNER$PANEL$PAPER$PARTY$PEACE$PETER$PHASE$PHONE$PIECE$PILOT$PITCH$PLACE$PLANE$PLANT$PLATE$POINT$POUND$POWER$PRESS$PRICE$PRIDE$PRIZE$PROOF$QUEEN$"
+ALL_WORDS_5 DB "RANGE$RATIO$REPLY$RIGHT$RIVER$ROUND$ROUTE$RUGBY$SCALE$SCENE$SCOPE$SCORE$SENSE$SHAPE$SHARE$SHEEP$SHEET$SHIFT$SHIRT$SHOCK$SIGHT$SIMON$SKILL$SLEEP$SMILE$SMITH$"
+ALL_WORDS_6 DB "SMOKE$SOUND$SOUTH$SPACE$SPEED$SPITE$SPORT$SQUAD$STAFF$STAGE$START$STATE$STEAM$STEEL$STOCK$STONE$STORE$STUDY$STUFF$STYLE$SUGAR$TABLE$TASTE$TERRY$THEME$THING$"
+ALL_WORDS_7 DB "TITLE$TOTAL$TOUCH$TOWER$TRACK$TRADE$TRAIN$TREND$TRIAL$TRUST$TRUTH$UNCLE$UNION$UNITY$VALUE$VIDEO$VISIT$VOICE$WASTE$WATCH$WATER$WHILE$WHOLE$WOMAN$WORLD$YOUTH$"
+
+    CORRECT_LETTER_FLAG    DB 0
 	CORRECT_POSITION_FLAG  DB 0
     
 DATA_SEG	ENDS
