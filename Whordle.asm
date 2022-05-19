@@ -114,7 +114,7 @@ MAIN 	PROC 	NEAR
 
 	  ; Quit
       CMP AL, ASCII_QUIT
-      JZ END_PROG
+      JZ LOSE
 	  
 	  ; Check backspace
 	  CMP AL, ASCII_BACKSPACE
