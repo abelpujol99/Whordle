@@ -958,6 +958,7 @@ DATA_SEG	SEGMENT	PUBLIC
 
     START_GAME DB 0             ; 'MAIN' sets START_GAME to '1' when a key is pressed
     END_GAME DB 0               ; 'NEW_TIMER_INTERRUPT' sets END_GAME to '1' when a condition to end the game happens
+	LETTER_ANIMATION DB 0
 
     SCORE_STR           DB "Your score is $"
     PLAY_AGAIN_STR      DB ". Do you want to play again? (Y/N)$"

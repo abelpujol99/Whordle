@@ -1,3 +1,4 @@
+; * Adria Perez i Abel Pujol, 2022
 ; * Carles Vilella, 2017 (ENTI-UB)
 
 ; *************************************************************************
@@ -12,10 +13,6 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
 
 ; EXTENDED ASCII CODES
     ASCII_SPECIAL_KEY EQU 00
-    ASCII_LEFT        EQU 04Bh
-    ASCII_RIGHT       EQU 04Dh
-    ASCII_UP          EQU 048h
-    ASCII_DOWN        EQU 050h
     ASCII_QUIT        EQU 01Bh ; 'Escape'
 
 ; ASCII / ATTR CODES TO DRAW THE FIELD
@@ -41,8 +38,9 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
     ASCII_Z_UPPER_CHAR      EQU 5Ah
     ASCII_A_UPPER_CHAR      EQU 41h
 
-
     ASCII_LOWER_TO_UPPER    EQU 20h
+	
+	REMOVE_LAST_POSITION_MASK EQU 0FEh
 
 ; COLOR SCREEN DIMENSIONS IN NUMBER OF CHARACTERS
     SCREEN_MAX_ROWS EQU 17
@@ -60,6 +58,7 @@ SGROUP 		GROUP 	CODE_SEG, DATA_SEG
 	GAME_WORD_GROUP_AMOUNT EQU 8
 	GAME_WORD_AMOUNT EQU 27
 	WORD_LENGTH EQU 12
+	ANIMATION_CYCLES EQU 7
 
 ; *************************************************************************
 ; Our executable assembly code starts here in the .code section
@@ -78,9 +77,6 @@ MAIN 	PROC 	NEAR
 	  CALL CHOOSE_GAME_WORD
       CALL DRAW_FIELD
 
-	  ;;DEBUG
-	  ;CALL PRINT_GAME_WORD
-
       MOV DH, 3
       MOV DL, 5
       
@@ -97,9 +93,27 @@ MAIN 	PROC 	NEAR
       CMP [END_GAME], TRUE
       JZ END_PROG
 
+	  CMP [LETTER_ANIMATION], FALSE
+	  JNE END_KEY
+
 	  ; Lose when you run out of words
 	  CMP BH, 0
 	  JE LOSE
+
+	  ; Check if newline
+	  CMP [NEXT_LINE], TRUE
+	  JNE END_IF_NEWLINE
+	  
+	  MOV [NEXT_LINE], FALSE
+	  
+	  CMP [CORRECT_POSITION_FLAG], 01Fh
+	  JE WIN
+	  
+	  ADD DH, 2
+      MOV DL, 5
+      CALL MOVE_CURSOR
+
+  END_IF_NEWLINE:
 
       ; Check if a key is available to read
       MOV AH, 0Bh
@@ -141,35 +155,16 @@ MAIN 	PROC 	NEAR
 	  JNE END_KEY
 	  
 	  ;; validate word
-	  CALL CHECK_WORD
+	  CALL CHECK_WORD  
 	  
-	  ;;DEBUG
-	  PUSH AX
-	  PUSH BX
-	  PUSH CX
-	  PUSH DX
-	  MOV AL, [CORRECT_LETTER_FLAG]
-	  ADD AL, ASCII_NUMBER_ZERO
-	  ;CALL PRINT_CHAR
-  
-	  MOV AL, [CORRECT_POSITION_FLAG]
-	  ADD AL, ASCII_NUMBER_ZERO
-	  ;CALL PRINT_CHAR
-	  POP DX
-	  POP CX
-	  POP BX
-	  POP AX
-
-	  MOV CL, [CORRECT_POSITION_FLAG]
-	  CMP CL, 01Fh
-	  JE WIN
+	  MOV [LETTER_ANIMATION], TRUE
+	  MOV [ANIM_FIRST_EXECUTION], TRUE
+	  XOR CH, CH
 	  
 	  LEA SI, [CURR_WORD]
 	  MOV BL, LETTER_COUNT
 	  SUB BH, 1
-	  ADD DH, 2
-      MOV DL, 5
-      CALL MOVE_CURSOR
+	  
 	  JMP END_KEY
 	  
   END_IF_FINAL_LETTER:
@@ -227,7 +222,7 @@ MAIN 	PROC 	NEAR
 MAIN	ENDP	
 
 ; ****************************************
-; Shows the cursor (standard size)
+; Chooses a random word from a list
 ; Entry: 
 ;   -
 ; Returns:
@@ -235,7 +230,7 @@ MAIN	ENDP
 ; Modifies:
 ;   -
 ; Uses: 
-;   -
+;   ALL_WORDS_0 - 8 memory variables
 ; Calls:
 ;   int 10h, service AH=1
 ; ****************************************
@@ -307,6 +302,12 @@ CHOOSE_GAME_WORD PROC NEAR
     MOV CX, GAME_WORD_AMOUNT
     DIV CX
 	
+	CMP DX, 0
+	JNE END_IF_ZERO_BAD
+	INC DX
+	
+  END_IF_ZERO_BAD:	
+	
 	MOV AX, DX
 	MOV CX, WORD_LENGTH
 	MUL CX
@@ -328,18 +329,20 @@ CHOOSE_GAME_WORD PROC NEAR
 CHOOSE_GAME_WORD       ENDP
 
 ; ****************************************
-; Reads char from keyboard
-; If char is not available, blocks until a key is pressed
-; The char is not output to screen
+; Compares word to selected word of the game and fills
+; flags representing which letters are found in the word
+; and which are found in the same exact position
 ; Entry: 
 ;
 ; Returns:
-;   AL: ASCII CODE
-;   AH: ATTRIBUTE
+;
 ; Modifies:
 ;   
 ; Uses: 
-;   
+;   CURR_WORD memory variable
+;   GAME_WORD memory variable
+;   CORRECT_LETTER_FLAG memory variable
+;   CORRECT_POSITION_FLAG memory variable
 ; Calls:
 ;   
 ; ****************************************
@@ -393,7 +396,7 @@ CHECK_WORD PROC NEAR
   CORRECT_POSITION:
   
     OR BL, 1
-	AND BH, 0FEh
+	AND BH, REMOVE_LAST_POSITION_MASK
 	JMP END_LOOP_1
 		
   END_LOOP_2:
@@ -441,27 +444,20 @@ CHECK_WORD ENDP
 ; Modifies:
 ;   -
 ; Uses: 
-;   INC_ROW memory variable
-;   INC_COL memory variable
-;   DIV_SPEED memory variable
-;   NUM_TILES memory variable
+;   NEXT_LINE memory variable
+;   LETTER_ANIMATION memory variable
 ;   START_GAME memory variable
 ;   END_GAME memory variable
 ; Calls:
 ;   -
 ; ****************************************
-                  PUBLIC  INIT_GAME
+PUBLIC  INIT_GAME
 INIT_GAME         PROC    NEAR
-
-    MOV [INC_ROW], 0
-    MOV [INC_COL], 0
-
-    MOV [DIV_SPEED], 10
-
-    MOV [NUM_TILES], 0
     
     MOV [START_GAME], FALSE
     MOV [END_GAME], FALSE
+	MOV [LETTER_ANIMATION], FALSE
+	MOV [NEXT_LINE], FALSE
 
     RET
 INIT_GAME	ENDP	
@@ -655,7 +651,7 @@ PRINT_CHAR PROC NEAR
 PRINT_CHAR        ENDP     
 
 ; ****************************************
-; CONVERT LOWER CHAR TO UPPER CHAR
+; Convert lowercase char into uppercase
 ; Entry: 
 ;    AL: ASCII code to print
 ; Returns:
@@ -683,7 +679,7 @@ END_IF_LOWER_TO_UPPER:
 LOWER_TO_UPPER        ENDP     
 
 ; ****************************************
-; CHECK IF IS VALID CHAR
+; Check if char is a valid uppercase letter
 ; Entry: 
 ;    AL: ASCII code to print
 ; Returns:
@@ -1049,7 +1045,7 @@ PRINT_LOSE_STRING PROC NEAR
 PRINT_LOSE_STRING       ENDP
 
 ; ****************************************
-; Print the score string, starting in the
+; Print the play again string, starting in the
 ; current cursor coordinate
 ; Entry: 
 ;   -
@@ -1078,17 +1074,16 @@ PRINT_PLAY_AGAIN_STRING PROC NEAR
 PRINT_PLAY_AGAIN_STRING       ENDP
 
 ; ****************************************
-; Prints the score of the player in decimal, on the screen, 
-; starting in the cursor position
-; NUM_TILES range: [0, 9999]
+; Prints the number of attempts the player
+; needed to guess the correct word
 ; Entry: 
-;   -
+;   BH: Amount of words the player entered
 ; Returns:
 ;   -
 ; Modifies:
 ;   -
 ; Uses: 
-;   NUM_TILES memory variable
+;
 ; Calls:
 ;   PRINT_CHAR
 ; ****************************************
@@ -1108,9 +1103,8 @@ PRINT_SCORE PROC NEAR
 PRINT_SCORE        ENDP
 
 ; ****************************************
-; Prints the score of the player in decimal, on the screen, 
-; starting in the cursor position
-; NUM_TILES range: [0, 9999]
+; Prints selected word
+;
 ; Entry: 
 ;   -
 ; Returns:
@@ -1118,7 +1112,7 @@ PRINT_SCORE        ENDP
 ; Modifies:
 ;   -
 ; Uses: 
-;   NUM_TILES memory variable
+;   GAME_WORD memory variable
 ; Calls:
 ;   PRINT_CHAR
 ; ****************************************
@@ -1139,8 +1133,7 @@ PRINT_GAME_WORD        ENDP
 ; Game timer interrupt service routine
 ; Called 18.2 times per second by the operating system
 ; Calls previous ISR
-; Manages the movement of the snake: 
-;   position, direction, speed, length, display, collisions
+; Used to animate letter background when word is entered
 ; Entry: 
 ;   -
 ; Returns:
@@ -1149,19 +1142,11 @@ PRINT_GAME_WORD        ENDP
 ;   -
 ; Uses: 
 ;   OLD_INTERRUPT_BASE memory variable
-;   START_GAME memory variable
-;   END_GAME memory variable
-;   INT_COUNT memory variable
-;   DIV_SPEED memory variable
-;   INC_COL memory variable
-;   INC_ROW memory variable
-;   ATTR_SNAKE constant
-;   NUM_TILES memory variable
-;   NUM_TILES_INC_SPEED
+;   LETTER_ANIMATION memory variable
+;
 ; Calls:
-;   MOVE_CURSOR
-;   READ_SCREEN_CHAR
-;   PRINT_SNAKE
+;	FILL_TILE
+;   
 ; ****************************************
 PUBLIC NEW_TIMER_INTERRUPT
 NEW_TIMER_INTERRUPT PROC NEAR
@@ -1173,44 +1158,183 @@ NEW_TIMER_INTERRUPT PROC NEAR
     PUSH AX
 
     ; Do nothing if game is stopped
-    CMP [START_GAME], TRUE
+    CMP [LETTER_ANIMATION], TRUE
     JNZ END_ISR
+	
+	INC CH
+	CMP CH, ANIMATION_CYCLES
+	JNE END_ISR
+	
+	XOR CH, CH
+	CALL FILL_TILE
 
-    ; Increment INC_COUNT and check if worm position must be updated (INT_COUNT == DIV_COUNT)
-    INC [INT_COUNT]
-    MOV AL, [INT_COUNT]
-    CMP [DIV_SPEED], AL
-    JNZ END_ISR
-    MOV [INT_COUNT], 0
-
-    ; Load worm coordinates
-    ADD DL, [INC_COL]
-    ADD DH, [INC_ROW]
-
-    ; Move snake on the screen
-    CALL MOVE_CURSOR
-
-    ; Check if it is time to increase the speed of the snake
-    CMP [DIV_SPEED], 1
-    JZ END_ISR
-    MOV AX, [NUM_TILES]
-    DIV [NUM_TILES_INC_SPEED]
-    CMP AH, 0                 ; REMAINDER
-    JNZ END_ISR
-    DEC [DIV_SPEED]
-
-    JMP END_ISR
-      
-END_SNAKES:
-      MOV [END_GAME], TRUE
-      
 END_ISR:
-
-      POP AX
-      IRET
+	  POP AX
+	  IRET
 
 NEW_TIMER_INTERRUPT ENDP
-                 
+      
+; ****************************************
+; Fills background of letters according to correct letter
+; and correct position flags
+; Entry: 
+;   
+; Returns:
+;   -
+; Modifies:
+;   -
+; Uses: 
+;   LETTER_ANIMATION memory variable
+;   ANIM_FIRST_EXECUTION memory variable
+;   CORRECT_LETTER_FLAG memory variable
+;   CORRECT_POSITION_FLAG memory variable
+;   ANIM_AX memory variable
+;   ANIM_BX memory variable
+;   ANIM_CX memory variable
+;   ANIM_DX memory variable
+;   ANIM_SI memory variable
+;   NEXT_LINE memory variable
+; Calls:
+;   -
+; ****************************************
+PUBLIC  FILL_TILE
+FILL_TILE         PROC    NEAR
+	
+	PUSH AX
+	PUSH BX
+	PUSH CX
+	PUSH DX
+	PUSH SI
+	
+	CMP [ANIM_FIRST_EXECUTION], TRUE
+	JNE RESTORE_VALUES
+	
+	LEA SI, [CURR_WORD]
+	
+	INC SI
+	INC SI
+	INC SI
+	INC SI
+	
+	MOV CL, 0 ;contador
+	MOV BH, 0 ;max loops
+
+	MOV [ANIM_FIRST_EXECUTION], FALSE
+	JMP RESTORE_CORRECT_LETTER_FLAG
+	
+RESTORE_VALUES:
+	MOV AX, [ANIM_AX]
+	MOV BX, [ANIM_BX]
+	MOV CX, [ANIM_CX]
+	MOV DX, [ANIM_DX]
+	MOV SI, [ANIM_SI]
+
+		
+RESTORE_CORRECT_LETTER_FLAG:
+
+	MOV AL, [CORRECT_LETTER_FLAG]
+	
+SHIFT_RIGHT_LOOP_FOR_CORRECT_LETTER:
+	
+	CMP CL, BH
+	JE CHECK_TILE_FOR_CORRECT_LETTER
+	SHR AL, 1
+	INC CL
+	JMP SHIFT_RIGHT_LOOP_FOR_CORRECT_LETTER
+
+CHECK_TILE_FOR_CORRECT_LETTER:
+
+	CALL GET_CURSOR_PROP
+	SUB DL, 2
+	CALL MOVE_CURSOR
+	
+	MOV CL, 0
+	AND AL, 01h
+	CMP AL, 1
+	JNE RESTORE_CORRECT_POSITION_FLAG	
+		
+	;draw
+	MOV AL, [SI]
+	MOV BL, 60h
+	CALL PRINT_CHAR_ATTR
+	DEC SI
+	;draw		
+		
+	INC BH
+	CMP BH, 5
+	JE END_FILL_TILE
+	JMP END_FT_LOOP
+
+
+RESTORE_CORRECT_POSITION_FLAG:
+
+	MOV BL, 0
+	MOV AL, [CORRECT_POSITION_FLAG]
+	
+SHIFT_RIGHT_LOOP_FOR_CORRECT_POSITION:
+
+	CMP BL, BH
+	JE CHECK_TILE_FOR_CORRECT_POSITION
+	SHR AL, 1
+	INC BL
+	JMP SHIFT_RIGHT_LOOP_FOR_CORRECT_POSITION
+	
+CHECK_TILE_FOR_CORRECT_POSITION:
+
+	AND AL, 01h
+	CMP AL, 1
+	JNE FILL_WITH_GREY
+	
+	;DRAW	
+	MOV AL, [SI]
+	MOV BL, 20h
+	CALL PRINT_CHAR_ATTR
+	DEC SI
+	;DRAW
+	
+	INC BH
+	CMP BH, 5
+	JE END_FILL_TILE
+	JMP END_FT_LOOP
+	
+	
+FILL_WITH_GREY:
+
+	;DRAW
+	MOV AL, [SI]
+	MOV BL, 70h
+	CALL PRINT_CHAR_ATTR
+	DEC SI
+	;DRAW
+
+	INC BH
+	CMP BH, 5
+	JE END_FILL_TILE
+	JMP END_FT_LOOP
+	
+END_FILL_TILE:
+
+	MOV [LETTER_ANIMATION], FALSE
+	MOV [NEXT_LINE], TRUE
+	
+END_FT_LOOP:
+
+	MOV [ANIM_AX], AX
+	MOV [ANIM_BX], BX
+	MOV [ANIM_CX], CX
+	MOV [ANIM_DX], DX
+	MOV [ANIM_SI], SI
+
+	POP SI
+	POP DX
+	POP CX
+	POP BX
+	POP AX
+
+    RET
+FILL_TILE	ENDP	
+
+	  
 ; ****************************************
 ; Replaces current timer ISR with the game timer ISR
 ; Entry: 
@@ -1299,18 +1423,9 @@ DATA_SEG	SEGMENT	PUBLIC
 			
     OLD_INTERRUPT_BASE    DW  0, 0  ; Stores the current (system) timer ISR address
 
-    ; (INC_ROW. INC_COL) may be (-1, 0, 1), and determine the direction of movement of the snake
-    INC_ROW DB 0    
-    INC_COL DB 0
-
-    NUM_TILES DW 0              ; SNAKE LENGTH
-    NUM_TILES_INC_SPEED DB 20   ; THE SPEED IS INCREASED EVERY 'NUM_TILES_INC_SPEED'
-    
-    DIV_SPEED DB 10             ; THE SNAKE SPEED IS THE (INTERRUPT FREQUENCY) / DIV_SPEED
-    INT_COUNT DB 0              ; 'INT_COUNT' IS INCREASED EVERY INTERRUPT CALL, AND RESET WHEN IT ACHIEVES 'DIV_SPEED'
-
     START_GAME DB 0             ; 'MAIN' sets START_GAME to '1' when a key is pressed
     END_GAME DB 0               ; 'NEW_TIMER_INTERRUPT' sets END_GAME to '1' when a condition to end the game happens
+	LETTER_ANIMATION DB 0
 
     SCORE_STR           DB "You guessed correctly in attempt number $"
     LOSE_STR           DB "Too bad! The correct word was $"
@@ -1318,6 +1433,14 @@ DATA_SEG	SEGMENT	PUBLIC
 	
 	GAME_WORD              DB 6 DUP(0)
     CURR_WORD              DB 5 DUP(0)
+	
+	ANIM_AX DW 0
+	ANIM_BX DW 0
+	ANIM_CX DW 0
+	ANIM_DX DW 0
+	ANIM_SI DW 0
+	ANIM_FIRST_EXECUTION DB 0
+	NEXT_LINE DB 0
 	
 	;a lot of 5-letter words
 	;god forgive my sins
